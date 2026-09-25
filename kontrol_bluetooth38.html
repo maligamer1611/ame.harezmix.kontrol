@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harezmi X Kontrol (Bluetooth)</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f5f5f5; text-align: center; margin: 0; padding: 24px; }
+  h1 { margin-top: 0; }
+  #durum { margin: 12px 0; font-weight: 600; }
+  .bagli { color: #1a8a3a; } .degil { color: #c0392b; }
+  button { font-size: 1.1rem; border: none; border-radius: 12px; background: #2b6cb0; color: #fff; cursor: pointer; }
+  #baglan { padding: 12px 24px; }
+  .pad { display: grid; grid-template-columns: repeat(3, 90px); grid-template-rows: repeat(2, 90px); gap: 10px; justify-content: center; margin: 24px 0; }
+  .pad button { font-size: 2rem; }
+  .pad button.aktif { background: #1a4f85; transform: scale(0.95); }
+  #ileri { grid-column: 2; grid-row: 1; }
+  #sol { grid-column: 1; grid-row: 2; }
+  #geri { grid-column: 2; grid-row: 2; }
+  #sag { grid-column: 3; grid-row: 2; }
+  #dur { padding: 10px 28px; background: #c0392b; }
+  input[type=range] { width: 260px; }
+  #gamepadDurum.bagli { color: #1a8a3a; font-weight: 600; }
+  #gamepadDebug { max-width: 560px; margin: 8px auto; text-align: left; font-size: 0.85rem; background: #fff; border-radius: 10px; padding: 10px 14px; box-shadow: 0 1px 4px rgba(0,0,0,.08); display: none; }
+  #gamepadDebug b.basili { color: #1a8a3a; }
+  .kucuk { padding: 6px 14px; font-size: 1.1rem; }
+  .kod-kutu { max-width: 720px; margin: 32px auto 0; text-align: left; }
+  .kod-ust { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  #kopyala { padding: 10px 20px; }
+  #kopyala.tamam { background: #2f855a; }
+  pre#kod { background: #1e1e1e; color: #e6e6e6; padding: 16px; border-radius: 12px; overflow-x: auto; font-size: 0.85rem; max-height: 360px; overflow-y: auto; margin: 0; }
+</style>
+</head>
+<body>
+<h1>🤖 Harezmi X Kontrol (Bluetooth)</h1>
+<button id="baglan">Bluetooth ile Bağlan</button>
+<div id="durum" class="degil">Bağlı değil</div>
+
+<div class="pad">
+  <button id="ileri" data-k="F">▲</button>
+  <button id="sol" data-k="L">◀</button>
+  <button id="geri" data-k="B">▼</button>
+  <button id="sag" data-k="R">▶</button>
+</div>
+<button id="dur">DUR</button>
+
+<p><span id="hizYazi">6</span><br>
+<input type="range" id="hiz" min="0" max="9" value="6"></p>
+
+
+<div class="kiskac">
+  <p>  <button class="kucuk" id="kiskacAc">Aç (R)</button>
+  <button class="kucuk" id="kiskacKapat">Kapat (E)</button>
+  <button class="kucuk" id="ledRenk">🎨</button></p>
+</div>
+<p id="gamepadDurum"></p>
+<div id="gamepadDebug"><div id="gamepadAxes"></div><div id="gamepadButtons"></div></div>
+
+<div class="kod-kutu">
+  <div class="kod-ust">
+    <strong>Arduino kodu</strong>
+    <button id="kopyala">Kodu Kopyala</button>
+  </div>
+  <pre id="kod"></pre>
+</div>
+<script type="text/plain" id="inoKaynak">// Harezmi X - USB kablo İLE veya kart üzerindeki BT soketindeki Bluetooth modülü İLE
+// (kontrol_bluetooth.html + Web Bluetooth API üzerinden) bilgisayardan kontrol
+// Komutlar (tek karakter): F=ileri, B=geri, L=sol, R=sağ, S=dur
+//   Kavisli: E=ileri+sağ, Q=ileri+sol, C=geri+sağ, Z=geri+sol
+//   Kıskaç (servo): K=kapat, O=aç (komut geldiği sürece yavaşça hareket eder, kesilince durur)
+//   Kıskaç analog (gamepad tetiği): a..i = kapat (hız 1-9), j..r = aç (hız 1-9)
+// '0'..'9' = hız kademesi (bip çalar), 's'..'z' = analog sürüş hızı (joystick itme miktarı, bip çalmaz)
+//   RGB LED: X = rengi değiştir (yeşil > sarı > turuncu > mavi > renk döngüsü), Y = cihaz bağlandı (5 kez kırmızı yanıp söner)
+//
+// RGB LED şeridi (A1, WS2812B-8: 8 LED). Gerekli kütüphane: "Adafruit NeoPixel" (Adafruit)
+// Ekran: 16x2 karakter LCD (I2C adaptörlü, PCF8574T, adres 0x27).
+// Gerekli kütüphane (Kütüphane Yöneticisi'nden): "LiquidCrystal I2C" (Frank de Brabander)
+// Robot açılınca ekranda gözler animasyonu oynar, sonra her 5 saniyede bir göz kırpar.
+// Ön ultrasonik sensöre bir cisim yaklaşınca (MESAFE_ESIGI cm) gözler şaşı olur, ortaya bakar.
+// Ön çarpma sensörleri: sağdaki bir şeye değince gözler sağa, soldaki değince sola bakar.
+// İki çarpma sensörüne birlikte çift tıklanınca ekranda 3 sn pil durumu gösterilir.
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
+#include <Adafruit_NeoPixel.h>
+
+// Buzzer notası (frekans 0 = sessizlik). Arduino IDE'nin otomatik fonksiyon listesi
+// bu tanımı görebilsin diye EN ÜSTTE olmalı, aşağı taşıma.
+struct Nota { uint16_t frekans; uint16_t sure; };
+
+// Bluetooth modülü kartın "BT D12.D13" soketine bağlı (TX/RX bu pinlerde).
+// Modülün varsayılan hızı genelde 9600 baud'dur. Komutlar hiç çalışmazsa
+// (bağlantı kurulup veri geçmiyorsa) aşağıdaki (12, 13) sırasını (13, 12) yap.
+SoftwareSerial btSerial(12, 13);
+
+// Pinler pin bulucu ile doğrulandı
+const int SOL_IN1 = 6;   // sol motor ileri
+const int SOL_IN2 = 9;   // sol motor geri
+const int SAG_IN1 = 11;  // sağ motor ileri
+const int SAG_IN2 = 10;  // sağ motor geri
+
+// Ultrasonik sensör pinleri (ultrasonik pin bulucu ile bulundu).
+// -1 yapılırsa sensör kullanılmaz (robot ve gözler yine çalışır).
+const int TRIG_PIN = A2;   // ultrasonik pin bulucu ile bulundu
+const int ECHO_PIN = A3;   // ultrasonik pin bulucu ile bulundu
+const float MESAFE_ESIGI = 4.0;   // cm: cisim bu mesafeden yakına gelirse gözler şaşı olur
+const float CIKIS_MESAFESI = 8.0; // cm: cisim bu mesafeden uzaklaşana kadar gözler şaşı kalır
+
+// Çarpma sensörü pinleri: çarpma pin bulucu ile bulup buraya yaz.
+// -1 kalırsa o sensör kullanılmaz (robot ve gözler yine çalışır).
+const int SOL_CARPMA_PIN = 7;                // sol çarpma sensörü (çarpma pin bulucu ile bulundu, basılınca LOW)
+const int SAG_CARPMA_PIN = 3;                // sağ çarpma sensörü (çarpma pin bulucu ile bulundu, basılınca LOW)
+const int CARPMA_BASILI = LOW;               // sensöre değince pinin okuduğu seviye (LOW ya da HIGH)
+const unsigned long BAKIS_EK_SURE = 1000;    // ms: sensörden ayrılınca gözler bu kadar daha o yöne bakar
+const int BAKIS_KAYMA = 2;                   // sağa/sola bakarken gözlerin kaydığı sütun sayısı
+
+// Renk sensörü (TCS34725, I2C adres 0x29, A4/A5 — ekranla aynı hat, sorun yok).
+// Sensör renk görmeyince (altında zemin yok / çok karanlık) robot durur; sadece GERİ gidebilir.
+const bool RENK_SENSORU_KULLAN = true;     // false yapılırsa özellik kapanır
+const uint16_t RENK_YOK_ESIGI = 200;       // ışık bu değerin ALTINA düşerse "renk yok" sayılır (Seri Monitörden bakıp ayarla)
+const uint16_t RENK_VAR_ESIGI = 300;       // ışık bu değerin ÜSTÜNE çıkınca tekrar "renk var" sayılır
+
+const unsigned long ZAMAN_ASIMI = 400; // ms: komut gelmezse robot durur (güvenlik)
+const float KAVIS_ORANI = 0.35;        // kavis alırken iç tekerlek hızının oranı (0-1, küçüldükçe keskin döner)
+
+// Motor yönü ayarı: true yapılan motorun dönüş yönü tersine çevrilir
+const bool SOL_TERS = false;
+const bool SAG_TERS = false;
+
+// Motorların güç oranı (1.0 = %100). Sağ motor her harekette %96 güçle döner.
+const float SOL_MAKS_ORAN = 1.00;
+const float SAG_MAKS_ORAN = 0.96;
+
+int hiz = 200;                 // 0-255
+unsigned long sonKomut = 0;
+bool hareketli = false;
+bool geriHareket = false;      // şu anki hareket geri yönde mi (renk yokken sadece buna izin var)
+int sonSolGuc = 0, sonSagGuc = 0;   // motorlara en son verilen güç (fren için)
+
+// Aktif fren: renk kaybolunca motorlara kısa bir ters darbe verilir, robot kaymadan durur
+const unsigned long FREN_SURESI_MAKS = 120; // ms: tam hızda fren darbesi süresi (robot geri sekerse küçült, kayarsa büyüt)
+bool frenAktif = false;
+unsigned long frenBitis = 0;
+
+// sol, sag: -255..255 (eksi = geri)
+void motorSur(int sol, int sag) {
+  sonSolGuc = sol;
+  sonSagGuc = sag;
+  if (SOL_TERS) sol = -sol;
+  if (SAG_TERS) sag = -sag;
+  sol = (int)(sol * SOL_MAKS_ORAN);
+  sag = (int)(sag * SAG_MAKS_ORAN);
+  if (sol >= 0) { analogWrite(SOL_IN1, sol);  analogWrite(SOL_IN2, 0); }
+  else          { analogWrite(SOL_IN1, 0);    analogWrite(SOL_IN2, -sol); }
+  if (sag >= 0) { analogWrite(SAG_IN1, sag);  analogWrite(SAG_IN2, 0); }
+  else          { analogWrite(SAG_IN1, 0);    analogWrite(SAG_IN2, -sag); }
+}
+
+// ---------------- KISKAÇ (servo) ----------------
+// ⚠️ Servo kütüphanesi KULLANILMIYOR: o kütüphane D9 ve D10'daki motor PWM'ini bozuyor
+// (motorların "geri" pinleri tam bu iki pinde). Bunun yerine servo sinyali elle üretiliyor.
+const int KISKAC_PIN = 5;                  // servo pini: D5
+const int KISKAC_ACIK_ACI = 155;           // derece: kıskaç tam açıkken servo açısı (servo testiyle bulundu)
+const int KISKAC_KAPALI_ACI = 60;          // derece: kıskaç kapalıyken servo açısı (servo testiyle bulundu)
+const float KISKAC_HIZ_MAKS = 150.0;       // derece/saniye: K/O komutlarında (klavye, ekran düğmesi) kullanılan tam hız
+const unsigned long KISKAC_ZAMAN_ASIMI = 300; // ms: komut gelmezse kıskaç durur
+// Servo boşta dururken sinyal gelmeye devam edince titreyip "dıııt" diye öter.
+// Hareket bittikten bu kadar sonra sinyal kesilir: servo olduğu yerde kalır ama susar.
+// Kıskaç tuttuğu şeyi bırakıyorsa bu süreyi büyüt (örn. 2000), ses erken kesilsin istersen küçült.
+const unsigned long KISKAC_SUSMA_SURESI = 600; // ms
+
+float kiskacAci = KISKAC_KAPALI_ACI;       // robot açılınca kıskaç kapalı kabul edilir
+float kiskacHiz = KISKAC_HIZ_MAKS;         // o an kullanılan hız (derece/sn); analog tetikle değişebilir
+int kiskacYon = 0;                         // +1 kapanıyor, -1 açılıyor, 0 duruyor
+unsigned long kiskacSonKomut = 0;
+unsigned long kiskacSonGuncelleme = 0;
+unsigned long kiskacSonDarbe = 0;
+unsigned long kiskacSonHareket = 0;        // en son ne zaman hareket etti (sinyali kesmek için)
+
+void kiskacGuncelle() {
+  if (KISKAC_PIN < 0) return;
+  unsigned long simdi = millis();
+  unsigned long simdiUs = micros();
+
+  if (kiskacYon != 0 && simdi - kiskacSonKomut > KISKAC_ZAMAN_ASIMI) kiskacYon = 0;   // tuş bırakıldı
+
+  if (kiskacYon != 0) {
+    unsigned long gecen = simdi - kiskacSonGuncelleme;
+    kiskacSonGuncelleme = simdi;
+    float yonIsareti = (KISKAC_KAPALI_ACI >= KISKAC_ACIK_ACI) ? 1.0 : -1.0;
+    kiskacAci += kiskacYon * yonIsareti * kiskacHiz * gecen / 1000.0;
+    float alt = min(KISKAC_ACIK_ACI, KISKAC_KAPALI_ACI);
+    float ust = max(KISKAC_ACIK_ACI, KISKAC_KAPALI_ACI);
+    if (kiskacAci < alt) kiskacAci = alt;
+    if (kiskacAci > ust) kiskacAci = ust;
+    kiskacSonHareket = simdi;
+  } else {
+    kiskacSonGuncelleme = simdi;
+  }
+
+  // Hareket bitip bir süre geçtiyse sinyali kes: servo susar, olduğu yerde kalır
+  if (simdi - kiskacSonHareket > KISKAC_SUSMA_SURESI) {
+    digitalWrite(KISKAC_PIN, LOW);
+    return;
+  }
+
+  // Servoyu tutmak için her 20 ms'de bir darbe gönder (0 derece = 600 us, 180 derece = 2400 us)
+  if (simdiUs - kiskacSonDarbe >= 20000UL) {
+    kiskacSonDarbe = simdiUs;
+    digitalWrite(KISKAC_PIN, HIGH);
+    delayMicroseconds(600 + (int)(kiskacAci * 10));
+    digitalWrite(KISKAC_PIN, LOW);
+  }
+}
+
+// ---------------- BUZZER ----------------
+// ⚠️ tone() KULLANILMIYOR: o komut D11'deki sağ motor PWM'ini bozuyor. Ses elle üretiliyor,
+// çalarken robot durmaz. Kartta "BZR D8" yazıyor (D7 sol çarpma sensörü, oraya koyma).
+const int BUZZER_PIN = 8;
+const bool BUZZER_AKTIF_TIP = false;       // ses cızırtılı/zayıf gelirse true yap (aktif buzzer ise temiz öter)
+
+// Buzzer: Digisound F/DGX (devresiz manyetik, en gür ses ~2400 Hz civarında)
+const Nota ACILIS_SESI[] = { {2000, 60}, {0, 30}, {2200, 60}, {0, 30}, {2400, 60}, {0, 180}, {2400, 450} }; // dırırıt dıııt
+const Nota DIT_SESI[]    = { {2400, 50} };                                                                  // dit
+const Nota UZUN_BIP[]    = { {2000, 400} };                                                                 // biiip
+
+Nota melodi[8];
+int melodiUzunluk = 0, melodiIndex = 0;
+bool caliyor = false;
+unsigned long notaBaslangic = 0, sonToggle = 0;
+bool buzzerPinDurum = false;
+
+void melodiCal(const Nota* notalar, int adet) {
+  if (BUZZER_PIN < 0) return;
+  if (adet > 8) adet = 8;
+  for (int i = 0; i < adet; i++) melodi[i] = notalar[i];
+  melodiUzunluk = adet;
+  melodiIndex = 0;
+  notaBaslangic = millis();
+  caliyor = true;
+}
+
+void buzzerGuncelle() {
+  if (!caliyor) return;
+  unsigned long simdi = millis();
+  while (simdi - notaBaslangic >= melodi[melodiIndex].sure) {   // sıradaki notaya geç
+    notaBaslangic += melodi[melodiIndex].sure;
+    melodiIndex++;
+    if (melodiIndex >= melodiUzunluk) { caliyor = false; digitalWrite(BUZZER_PIN, LOW); return; }
+  }
+  const Nota &n = melodi[melodiIndex];
+  if (n.frekans == 0) { digitalWrite(BUZZER_PIN, LOW); return; }
+  if (BUZZER_AKTIF_TIP) { digitalWrite(BUZZER_PIN, HIGH); return; }
+  unsigned long us = micros();
+  if (us - sonToggle >= 500000UL / n.frekans) {                  // kare dalga: yarım periyotta bir pini çevir
+    sonToggle = us;
+    buzzerPinDurum = !buzzerPinDurum;
+    digitalWrite(BUZZER_PIN, buzzerPinDurum);
+  }
+}
+
+// ---------------- GÖZ ANİMASYONU (16x2 karakter LCD) ----------------
+const uint8_t LCD_ADRES = 0x27;            // ekran açılmazsa 0x3F dene (I2C tarayıcı ile bulunur)
+LiquidCrystal_I2C lcd(LCD_ADRES, 16, 2);
+
+// Özel karakterler (her biri 5x8 piksel). Numaraları: 0..6
+byte KARE_SOL_UST[8] = {0b00111, 0b01111, 0b01111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111}; // 0
+byte KARE_SAG_UST[8] = {0b11100, 0b11110, 0b11110, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111}; // 1
+byte KARE_SOL_ALT[8] = {0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b01111, 0b01111, 0b00111}; // 2
+byte KARE_SAG_ALT[8] = {0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11110, 0b11110, 0b11100}; // 3
+byte CIZGI_UST[8]    = {0, 0, 0, 0, 0, 0, 0b11111, 0b11111};                                     // 4 (kapalı göz, üst satır)
+byte CIZGI_ALT[8]    = {0b11111, 0b11111, 0, 0, 0, 0, 0, 0};                                     // 5 (kapalı göz, alt satır)
+byte DOLU[8]         = {0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111}; // 6
+
+const int GOZ_GENISLIK = 4;                // bir gözün genişliği (sütun)
+const int SOL_GOZ_X = 2;                   // ortadayken sol gözün başladığı sütun
+const int SAG_GOZ_X = 10;                  // ortadayken sağ gözün başladığı sütun
+const int SASI_KAYMA = 2;                  // şaşı bakarken her göz kaç sütun ortaya kayar (2 = gözler birbirine değecek kadar yakın)
+
+const unsigned long KIRPMA_ARALIGI = 5000; // ms: kaç saniyede bir göz kırpılsın
+const unsigned long KIRPMA_SURESI = 200;   // ms: bir göz kırpma ne kadar sürsün
+
+unsigned long ekranBaslangic = 0;
+unsigned long sonCizim = 0;
+int sonKaymaSol = -99;
+int sonKaymaSag = -99;
+int sonSeviye = -99;
+bool sasi = false;                         // cisim yakında mı: gözler şaşı
+
+const unsigned long BAKIS_SURESI = 300;    // ms: TÜM bakışlar (sağa, sola, ortaya, şaşı, çarpma) bu sürede tamamlanır
+int bakis = 0;                             // çarpma sensörüne göre bakış: -1 sola, 0 ortada, +1 sağa
+unsigned long sonCarpma = 0;
+
+// Göz konumu geçişi: gözler bulundukları yerden yeni hedefe BAKIS_SURESI içinde gider
+int baslaSol = 0, baslaSag = 0;            // geçiş başladığındaki konumlar
+int hedefSol = 0, hedefSag = 0;            // gidilecek konumlar
+unsigned long gecisBaslangic = 0;
+
+// kaymaSol / kaymaSag: her gözün sütun kayması (+ sağa, - sola)   seviye: 2 = açık, 1 = yarı açık, 0 = kapalı
+void gozleriCiz(int kaymaSol, int kaymaSag, int seviye) {
+  uint8_t ust[16];
+  uint8_t alt[16];
+  for (int i = 0; i < 16; i++) { ust[i] = ' '; alt[i] = ' '; }
+
+  for (int g = 0; g < 2; g++) {
+    int baslangic = (g == 0) ? (SOL_GOZ_X + kaymaSol) : (SAG_GOZ_X + kaymaSag);
+    for (int k = 0; k < GOZ_GENISLIK; k++) {
+      int x = baslangic + k;
+      if (x < 0 || x > 15) continue;
+      bool solKenar = (k == 0);
+      bool sagKenar = (k == GOZ_GENISLIK - 1);
+
+      if (seviye == 2) {                       // tam açık: 2 satır yüksekliğinde yuvarlak köşeli göz
+        ust[x] = solKenar ? 0 : (sagKenar ? 1 : 6);
+        alt[x] = solKenar ? 2 : (sagKenar ? 3 : 6);
+      } else if (seviye == 1) {                // yarı açık: sadece alt satır
+        alt[x] = solKenar ? 2 : (sagKenar ? 3 : 6);
+      } else {                                 // kapalı: ince çizgi
+        ust[x] = 4;
+        alt[x] = 5;
+      }
+    }
+  }
+
+  lcd.setCursor(0, 0);
+  for (int i = 0; i < 16; i++) lcd.write(ust[i]);
+  lcd.setCursor(0, 1);
+  for (int i = 0; i < 16; i++) lcd.write(alt[i]);
+}
+
+// Zamana göre gözün durumunu hesaplar (bekleme yok, motor kontrolü kesilmez)
+void gozDurumu(unsigned long t, int &kayma, int &seviye) {
+  kayma = 0;
+  seviye = 2;
+
+  if (t < 700)        { seviye = 0; }              // gözler kapalı
+  else if (t < 950)   { seviye = 1; }              // gözler açılıyor
+  else if (t < 1500)  { }                          // kısa bekleme
+  else if (t < 2400)  { kayma = BAKIS_KAYMA; }     // sağa bak (geçiş BAKIS_SURESI kadar sürer)
+  else if (t < 3500)  { kayma = -BAKIS_KAYMA; }    // sola bak
+  else if (t < 3800)  { kayma = 0; }               // ortaya gel
+  else {                                           // normal bekleme: 5 saniyede bir göz kırp
+    unsigned long dongu = (t - 3800) % KIRPMA_ARALIGI;
+    unsigned long kirpmaBaslangic = KIRPMA_ARALIGI - KIRPMA_SURESI;
+    if (dongu >= kirpmaBaslangic) {
+      unsigned long p = dongu - kirpmaBaslangic;   // 0 .. KIRPMA_SURESI
+      if (p < 50 || p >= 150) seviye = 1;          // kapanıyor / açılıyor
+      else                    seviye = 0;          // tamamen kapalı
+    }
+  }
+}
+
+// basla -> hedef arasında, geçen süreye göre ara konumu hesaplar (BAKIS_SURESI sonunda hedefe varır)
+int yumusat(int basla, int hedef, unsigned long gecen) {
+  if (gecen >= BAKIS_SURESI) return hedef;
+  return basla + (int)((long)(hedef - basla) * (long)gecen / (long)BAKIS_SURESI);
+}
+
+void gozleriGuncelle() {
+  unsigned long simdi = millis();
+  if (simdi - sonCizim < 30) return;
+
+  int kayma, seviye;
+  gozDurumu(simdi - ekranBaslangic, kayma, seviye);
+  if (bakis != 0) { kayma = bakis * BAKIS_KAYMA; seviye = 2; }   // çarpma: değen tarafa bak
+
+  bool sasiHedef = sasi && bakis == 0;             // çarpma varsa şaşı bakış bekler
+  if (sasiHedef) seviye = 2;                       // cisim yakınken gözler açık kalır
+  int sasiKayma = sasiHedef ? SASI_KAYMA : 0;      // şaşıyken sol göz sağa, sağ göz sola kayar
+
+  int yeniHedefSol = kayma + sasiKayma;
+  int yeniHedefSag = kayma - sasiKayma;
+  if (yeniHedefSol != hedefSol || yeniHedefSag != hedefSag) {
+    baslaSol = sonKaymaSol < -50 ? 0 : sonKaymaSol;   // şu anki konumdan başla
+    baslaSag = sonKaymaSag < -50 ? 0 : sonKaymaSag;
+    hedefSol = yeniHedefSol;
+    hedefSag = yeniHedefSag;
+    gecisBaslangic = simdi;
+  }
+
+  unsigned long gecen = simdi - gecisBaslangic;
+  int kaymaSol = yumusat(baslaSol, hedefSol, gecen);
+  int kaymaSag = yumusat(baslaSag, hedefSag, gecen);
+
+  if (kaymaSol != sonKaymaSol || kaymaSag != sonKaymaSag || seviye != sonSeviye) {  // değişmediyse tekrar çizme
+    gozleriCiz(kaymaSol, kaymaSag, seviye);
+    sonKaymaSol = kaymaSol;
+    sonKaymaSag = kaymaSag;
+    sonSeviye = seviye;
+  }
+  sonCizim = simdi;
+}
+
+// ---------------- PİL GÖSTERGESİ ----------------
+// İki çarpma sensörüne BİRLİKTE çift tıklayınca ekranda 3 sn pil durumu gösterilir.
+// Robotun pili 7,4 V Li-Ion (2 hücre): dolu ~8,4 V, boş ~6,4 V. Arduino bunu doğrudan okuyamaz,
+// kartta pilden bir analog pine giden voltaj bölücü olmalı.
+// PIL_PIN = -1 iken (pin henüz bilinmiyor) ekranda A0, A6, A7 pinlerinin voltajı gösterilir:
+// pili ölçen pin bulununca PIL_PIN ve PIL_BOLUCU_ORANI buraya yazılır, ekran yüzde gösterir.
+const int PIL_PIN = -1;                     // pil ölçüm pini (bilinmiyor)
+const float PIL_BOLUCU_ORANI = 3.0;         // pil voltajı = pin voltajı x bu oran (pin bulununca ayarlanacak)
+const float PIL_BOS_V = 6.4;                // bu voltajda %0
+const float PIL_DOLU_V = 8.4;               // bu voltajda %100
+const unsigned long PIL_EKRAN_SURESI = 3000;   // ms: pil ekranı ne kadar açık kalsın
+const unsigned long CIFT_TIK_ARALIGI = 700;    // ms: iki basış arası en fazla bu kadar olursa çift tık sayılır
+
+bool pilEkraniAcik = false;
+unsigned long pilEkraniBaslangic = 0, pilSonCizim = 0;
+bool ikisiHamOnceki = false, ikisiKararli = false;   // iki sensör birlikte basılı mı (titreşim süzülmüş)
+unsigned long ikisiDegisimZaman = 0, sonIkiliBasma = 0;
+
+float pinVoltaji(int pin) {                 // 8 ölçümün ortalaması, volt
+  long toplam = 0;
+  for (int i = 0; i < 8; i++) toplam += analogRead(pin);
+  return toplam / 8.0 * 5.0 / 1023.0;
+}
+
+void pilEkraniGoster() {
+  pilEkraniAcik = true;
+  pilEkraniBaslangic = millis();
+  pilSonCizim = 0;
+  melodiCal(DIT_SESI, 1);
+  lcd.clear();
+}
+
+void pilEkraniGuncelle() {
+  unsigned long simdi = millis();
+  if (simdi - pilEkraniBaslangic > PIL_EKRAN_SURESI) {   // süre bitti: gözlere dön
+    pilEkraniAcik = false;
+    lcd.clear();
+    sonKaymaSol = -99; sonKaymaSag = -99; sonSeviye = -99;   // gözler baştan çizilsin
+    return;
+  }
+  if (pilSonCizim != 0 && simdi - pilSonCizim < 250) return;   // saniyede 4 kez yenile
+  pilSonCizim = simdi;
+
+  char a[8], b[8], c[8], satir[17];
+  if (PIL_PIN < 0) {
+    // Pil pini henüz bilinmiyor: aday pinlerin voltajını göster (bu değerleri Claude'a söyle)
+    dtostrf(pinVoltaji(A0), 4, 2, a);
+    dtostrf(pinVoltaji(A6), 4, 2, b);
+    dtostrf(pinVoltaji(A7), 4, 2, c);
+    snprintf(satir, sizeof(satir), "A0:%s A6:%s", a, b);
+    lcd.setCursor(0, 0); lcd.print(satir);
+    snprintf(satir, sizeof(satir), "A7:%s  PIL?  ", c);
+    lcd.setCursor(0, 1); lcd.print(satir);
+  } else {
+    float v = pinVoltaji(PIL_PIN) * PIL_BOLUCU_ORANI;
+    int yuzde = constrain((int)((v - PIL_BOS_V) * 100.0 / (PIL_DOLU_V - PIL_BOS_V)), 0, 100);
+    dtostrf(v, 3, 1, a);
+    snprintf(satir, sizeof(satir), "Pil: %%%-3d %sV  ", yuzde, a);
+    lcd.setCursor(0, 0); lcd.print(satir);
+    int dolu = (yuzde + 5) / 10;             // 10 kutuluk dolum çubuğu
+    lcd.setCursor(0, 1);
+    lcd.print('[');
+    for (int i = 0; i < 10; i++) { if (i < dolu) lcd.write((uint8_t)6); else lcd.print(' '); }
+    lcd.print("]    ");
+  }
+}
+
+void ciftTikKontrol(bool sol, bool sag, unsigned long simdi) {
+  bool ikisiHam = sol && sag;
+  if (ikisiHam != ikisiHamOnceki) { ikisiHamOnceki = ikisiHam; ikisiDegisimZaman = simdi; }
+  // Mikro anahtar temas ederken titreşir: durum 30 ms sabit kalmadan değişiklik sayılmaz
+  if (simdi - ikisiDegisimZaman > 30 && ikisiHam != ikisiKararli) {
+    ikisiKararli = ikisiHam;
+    if (ikisiKararli) {                       // ikisine birlikte yeni basıldı
+      if (sonIkiliBasma != 0 && simdi - sonIkiliBasma < CIFT_TIK_ARALIGI) {
+        pilEkraniGoster();
+        sonIkiliBasma = 0;
+      } else {
+        sonIkiliBasma = simdi;
+      }
+    }
+  }
+}
+
+// ---------------- ÇARPMA SENSÖRLERİ ----------------
+void carpmaGuncelle() {
+  if (SOL_CARPMA_PIN < 0 && SAG_CARPMA_PIN < 0) return;
+  bool sol = (SOL_CARPMA_PIN >= 0) && (digitalRead(SOL_CARPMA_PIN) == CARPMA_BASILI);
+  bool sag = (SAG_CARPMA_PIN >= 0) && (digitalRead(SAG_CARPMA_PIN) == CARPMA_BASILI);
+  unsigned long simdi = millis();
+
+  if (sol && !sag)      { bakis = -1; sonCarpma = simdi; }   // sol çarpma sensörü: sola bak
+  else if (sag && !sol) { bakis = 1;  sonCarpma = simdi; }   // sağ çarpma sensörü: sağa bak
+  else if (sol && sag)  { bakis = 0;  sonCarpma = simdi; }   // ikisi birden: ortaya bak
+  else if (bakis != 0 && simdi - sonCarpma > BAKIS_EK_SURE) bakis = 0;
+
+  ciftTikKontrol(sol, sag, simdi);           // ikisine birlikte çift tık: pil ekranı
+}
+
+// ---------------- ULTRASONİK SENSÖR ----------------
+unsigned long sonOlcum = 0;
+int yakinSayac = 0;
+int uzakSayac = 0;
+int yankiYokSayac = 0;
+
+// cm cinsinden mesafe, ölçülemezse 0 (bekleme süresi kısa tutulur, motor kontrolü aksamaz)
+float mesafeOlc() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(4);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  unsigned long sure = pulseIn(ECHO_PIN, HIGH, 3500UL);   // ~60 cm'ye kadar bekle
+  if (sure == 0) return 0;
+  return sure / 58.0;
+}
+
+void mesafeGuncelle() {
+  if (TRIG_PIN < 0 || ECHO_PIN < 0) return;
+  unsigned long simdi = millis();
+  if (simdi - sonOlcum < 60) return;
+  sonOlcum = simdi;
+
+  float cm = mesafeOlc();
+  if (cm > 0 && cm <= MESAFE_ESIGI) {          // cisim yakında
+    yakinSayac++; uzakSayac = 0; yankiYokSayac = 0;
+  } else if (cm == 0) {                        // yankı gelmedi (cisim çok yakın olabilir ya da menzilde hiçbir şey yok)
+    yankiYokSayac++; yakinSayac = 0;
+  } else if (cm > CIKIS_MESAFESI) {            // cisim gerçekten uzaklaştı
+    uzakSayac++; yakinSayac = 0; yankiYokSayac = 0;
+  } else {                                     // 4-8 cm arası: mevcut durum korunur
+    yakinSayac = 0; uzakSayac = 0; yankiYokSayac = 0;
+  }
+
+  // Titremeyi önlemek için: 2 ölçüm üst üste yakınsa şaşı ol.
+  // Şaşıyken cisim CIKIS_MESAFESI'nden uzaklaşana (3 ölçüm) ya da uzun süre yankı gelmeyene (~1 sn) kadar öyle kal.
+  if (!sasi && yakinSayac >= 2) sasi = true;
+  if (sasi && (uzakSayac >= 3 || yankiYokSayac >= 15)) sasi = false;
+}
+
+// ---------------- RENK SENSÖRÜ (TCS34725) ----------------
+// Kütüphane gerekmez: sensör doğrudan I2C (Wire) ile okunur.
+const uint8_t TCS_ADRES = 0x29;
+bool renkSensoruVar = false;   // açılışta sensör bulunamazsa özellik kendiliğinden kapanır
+bool renkYok = false;          // true = sensör renk görmüyor, robot ileri gidemez
+uint16_t sonIsik = 0;
+unsigned long sonRenkOlcum = 0;
+unsigned long sonRenkYazdir = 0;
+int renkYokSayac = 0, renkVarSayac = 0;
+
+bool tcsYaz(uint8_t reg, uint8_t deger) {
+  Wire.beginTransmission(TCS_ADRES);
+  Wire.write(0x80 | reg);
+  Wire.write(deger);
+  return Wire.endTransmission() == 0;
+}
+
+uint8_t tcsOku8(uint8_t reg) {
+  Wire.beginTransmission(TCS_ADRES);
+  Wire.write(0x80 | reg);
+  if (Wire.endTransmission() != 0) return 0;
+  Wire.requestFrom(TCS_ADRES, (uint8_t)1);
+  return Wire.available() ? Wire.read() : 0;
+}
+
+uint16_t tcsIsikOku() {                     // "clear" kanalı: sensöre gelen toplam ışık
+  Wire.beginTransmission(TCS_ADRES);
+  Wire.write(0xA0 | 0x14);                  // otomatik artan okuma, CDATAL'dan başla
+  if (Wire.endTransmission() != 0) return 0;
+  Wire.requestFrom(TCS_ADRES, (uint8_t)2);
+  if (Wire.available() < 2) return 0;
+  uint16_t dusuk = Wire.read();
+  uint16_t yuksek = Wire.read();
+  return (yuksek << 8) | dusuk;
+}
+
+void renkSensoruBaslat() {
+  if (!RENK_SENSORU_KULLAN) return;
+  uint8_t id = tcsOku8(0x12);               // TCS34725 = 0x44, TCS34727 = 0x4D
+  if (id != 0x44 && id != 0x4D) {
+    Serial.println("Renk sensoru bulunamadi, ozellik kapali.");
+    return;
+  }
+  tcsYaz(0x01, 0xFD);                       // ölçüm süresi ~7 ms (hızlı tepki için kısa)
+  tcsYaz(0x0F, 0x02);                       // kazanç 16x (kısa ölçüm süresini dengeler, değerler öncekine yakın kalır)
+  tcsYaz(0x00, 0x01);                       // aç
+  delay(3);
+  tcsYaz(0x00, 0x03);                       // ölçümü başlat
+  renkSensoruVar = true;
+  Serial.println("Renk sensoru bulundu.");
+}
+
+void frenYap() {
+  // En son güce göre ters darbe: ne kadar hızlı gidiyorsa o kadar uzun fren
+  int enBuyuk = max(abs(sonSolGuc), abs(sonSagGuc));
+  unsigned long sure = (unsigned long)enBuyuk * FREN_SURESI_MAKS / 255;
+  hareketli = false;
+  if (sure < 10) { motorSur(0, 0); return; }
+  motorSur(-sonSolGuc, -sonSagGuc);
+  frenAktif = true;
+  frenBitis = millis() + sure;
+}
+
+void frenGuncelle() {
+  if (frenAktif && (long)(millis() - frenBitis) >= 0) {
+    frenAktif = false;
+    motorSur(0, 0);
+  }
+}
+
+void renkGuncelle() {
+  if (!renkSensoruVar) return;
+  unsigned long simdi = millis();
+  if (simdi - sonRenkOlcum < 8) return;     // sensör ~7 ms'de bir yeni ölçüm üretir
+  sonRenkOlcum = simdi;
+
+  sonIsik = tcsIsikOku();
+  if (sonIsik < RENK_YOK_ESIGI)      { renkYokSayac++; renkVarSayac = 0; }
+  else if (sonIsik > RENK_VAR_ESIGI) { renkVarSayac++; renkYokSayac = 0; }
+  else                               { renkYokSayac = 0; renkVarSayac = 0; }
+
+  // Durmak için tek ölçüm yeterli (hızlı tepki); tekrar harekete izin için 3 ölçüm (titremesin)
+  if (!renkYok && renkYokSayac >= 1) renkYok = true;
+  if (renkYok && renkVarSayac >= 3) renkYok = false;
+
+  // Renk yokken ileri/dönüş hareketi varsa hemen fren yap (geri gitmeye izin var)
+  if (renkYok && hareketli && !geriHareket) frenYap();
+
+  // Eşik ayarı için Seri Monitöre yaz (yarım saniyede bir)
+  if (simdi - sonRenkYazdir > 500) {
+    sonRenkYazdir = simdi;
+    Serial.print("Isik: "); Serial.print(sonIsik);
+    Serial.println(renkYok ? "  -> RENK YOK (dur)" : "  -> renk var");
+  }
+}
+// ----------------------------------------------------------------------
+
+// ---------------- RGB LED (A1) ----------------
+// Açılışta mavi. Gamepad'in B düğmesiyle sırayla: yeşil > sarı > turuncu > mavi > renk döngüsü > yeşil ...
+// Robot boşluk görünce kırmızı, yer görünce önceki renge döner. Bir cihaz bağlanınca 5 kez kırmızı yanıp söner.
+const int LED_PIN = A1;
+const int LED_SAYISI = 8;                  // WS2812B-8 şerit: 8 LED (hepsi aynı renkte yanar)
+const uint8_t LED_PARLAKLIK = 120;         // 0-255 (çok parlaksa küçült)
+Adafruit_NeoPixel led(LED_SAYISI, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+const uint32_t RENKLER[] = {
+  0x00FF00,   // yeşil
+  0xFFB400,   // sarı
+  0xFF3C00,   // turuncu
+  0x0000FF    // mavi
+};
+const int RENK_SAYISI = sizeof(RENKLER) / sizeof(RENKLER[0]);
+const uint32_t KIRMIZI = 0xFF0000;
+// B düğmesi sırası: yeşil > sarı > turuncu > mavi > RENK DÖNGÜSÜ > yeşil ...
+// Renk döngüsü modunda kırmızı hariç tüm renkler sırayla yanar.
+const int DONGU_MODU = RENK_SAYISI;        // renkIndex bu değerdeyken renk döngüsü modu açık
+const unsigned long DONGU_ARALIGI = 150;   // ms: renk döngüsünde her rengin yanık kalma süresi
+int renkIndex = -1;                        // -1 = açılış rengi (mavi); B'ye ilk basışta yeşile geçer
+
+// Bağlanınca: 5 kez kırmızı yanıp söner (0,3 sn yanık, 0,3 sn sönük), sonra önceki renge döner
+const int YANIP_SONME_SAYISI = 5;
+const unsigned long YANIP_SONME_ARALIGI = 300;   // ms
+const unsigned long YANIP_SONME_SURESI = YANIP_SONME_SAYISI * 2 * YANIP_SONME_ARALIGI;
+unsigned long yanipSonmeBaslangic = 0;
+bool yanipSonuyor = false;
+uint32_t sonLedRengi = 0xFFFFFFFF;         // en son gönderilen renk (değişmediyse LED'e tekrar yazılmaz)
+
+void ledRenginiDegistir() {
+  renkIndex = (renkIndex + 1) % (RENK_SAYISI + 1);   // +1: sonda renk döngüsü modu
+}
+
+void baglantiIsareti() {                   // cihaz bağlandı: 3 sn yanıp sönme başlat
+  unsigned long simdi = millis();
+  if (yanipSonuyor && simdi - yanipSonmeBaslangic < 1000) return;   // aynı bağlantı için iki kez başlamasın
+  yanipSonuyor = true;
+  yanipSonmeBaslangic = simdi;
+}
+
+void ledGuncelle() {
+  unsigned long simdi = millis();
+  uint32_t renk;
+  if (renkIndex < 0)                renk = RENKLER[RENK_SAYISI - 1];                        // açılış: mavi
+  else if (renkIndex == DONGU_MODU) renk = RENKLER[(simdi / DONGU_ARALIGI) % RENK_SAYISI];  // renk döngüsü
+  else                              renk = RENKLER[renkIndex];
+  if (yanipSonuyor) {
+    unsigned long gecen = simdi - yanipSonmeBaslangic;
+    if (gecen >= YANIP_SONME_SURESI) yanipSonuyor = false;          // bitti: seçili renge dön
+    else renk = ((gecen / YANIP_SONME_ARALIGI) % 2 == 0) ? KIRMIZI : 0;   // kırmızı / sönük
+  }
+  // Boşluk: kırmızı. Yer tekrar görülünce renkYok false olur ve seçili renge (renkIndex) geri dönülür.
+  if (renkYok) renk = KIRMIZI;
+  if (renk != sonLedRengi) {               // sadece değişince yaz (Bluetooth okumasını aksatmasın)
+    sonLedRengi = renk;
+    for (int i = 0; i < LED_SAYISI; i++) led.setPixelColor(i, renk);
+    led.show();
+  }
+}
+// ----------------------------------------------------------------------
+
+void setup() {
+  pinMode(SOL_IN1, OUTPUT); pinMode(SOL_IN2, OUTPUT);
+  pinMode(SAG_IN1, OUTPUT); pinMode(SAG_IN2, OUTPUT);
+  motorSur(0, 0);
+  Serial.begin(9600);
+  btSerial.begin(9600);
+
+  led.begin();
+  led.setBrightness(LED_PARLAKLIK);
+  ledGuncelle();                   // açılışta mavi
+
+  if (TRIG_PIN >= 0 && ECHO_PIN >= 0) {
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+  }
+  if (SOL_CARPMA_PIN >= 0) pinMode(SOL_CARPMA_PIN, INPUT_PULLUP);
+  if (SAG_CARPMA_PIN >= 0) pinMode(SAG_CARPMA_PIN, INPUT_PULLUP);
+  if (KISKAC_PIN >= 0) {
+    pinMode(KISKAC_PIN, OUTPUT);
+    digitalWrite(KISKAC_PIN, LOW);
+    kiskacSonHareket = millis();   // açılışta kıskacı kapalı konuma getirsin, sonra sussun
+  }
+  if (BUZZER_PIN >= 0) {
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);
+  }
+
+  lcd.init();
+  Wire.setClock(400000);           // I2C'yi hızlandır: ekran çizimi sensör okumasını geciktirmesin
+                                   // (ekranda bozukluk olursa bu satırı sil)
+  lcd.backlight();
+  lcd.createChar(0, KARE_SOL_UST);
+  lcd.createChar(1, KARE_SAG_UST);
+  lcd.createChar(2, KARE_SOL_ALT);
+  lcd.createChar(3, KARE_SAG_ALT);
+  lcd.createChar(4, CIZGI_UST);
+  lcd.createChar(5, CIZGI_ALT);
+  lcd.createChar(6, DOLU);
+  lcd.clear();
+
+  renkSensoruBaslat();             // ekrandan sonra: I2C hattı (Wire) lcd.init() ile başlatılmış olur
+
+  ekranBaslangic = millis();
+  gozleriCiz(0, 0, 0);             // ilk açılışta gözler kapalı
+  sonKaymaSol = 0;
+  sonKaymaSag = 0;
+  sonSeviye = 0;
+
+  melodiCal(ACILIS_SESI, sizeof(ACILIS_SESI) / sizeof(ACILIS_SESI[0]));   // açılış: dırırıt dıııt
+}
+
+// USB (Serial) ve Bluetooth (btSerial) üzerinden gelen komutlar aynı şekilde işlenir
+void komutIsle(char c) {
+  if (c == 'X') { ledRenginiDegistir(); return; }   // gamepad B düğmesi: LED rengini değiştir
+  if (c == 'Y') { baglantiIsareti(); return; }      // sayfa bağlandı: LED yanıp sönsün
+  if (c == 'K' || c == 'O') {                  // kıskaç: K = kapat, O = aç, tam hız (klavye / ekran düğmesi)
+    kiskacYon = (c == 'K') ? 1 : -1;
+    kiskacHiz = KISKAC_HIZ_MAKS;
+    kiskacSonKomut = millis();
+  } else if (c >= 'a' && c <= 'i') {           // kıskaç kapat, analog hız (gamepad tetiği): a=en yavaş .. i=en hızlı
+    kiskacYon = 1;
+    kiskacHiz = map(c - 'a' + 1, 1, 9, 30, (int)KISKAC_HIZ_MAKS);
+    kiskacSonKomut = millis();
+  } else if (c >= 'j' && c <= 'r') {           // kıskaç aç, analog hız (gamepad tetiği): j=en yavaş .. r=en hızlı
+    kiskacYon = -1;
+    kiskacHiz = map(c - 'j' + 1, 1, 9, 30, (int)KISKAC_HIZ_MAKS);
+    kiskacSonKomut = millis();
+  } else if (c >= 's' && c <= 'z') {           // sürüş hızı, analog (joystick ne kadar itilirse): s=en yavaş .. z=en hızlı
+    hiz = map(c - 's', 0, 7, 80, 255);         // '0'-'9' komutundan farkı: bip çalmaz (sürekli değişir)
+  } else {
+    sonKomut = millis();
+
+    bool geriKomut = (c == 'B' || c == 'C' || c == 'Z');
+    bool surusKomutu = (c == 'F' || c == 'L' || c == 'R' || c == 'E' || c == 'Q' || geriKomut);
+    if (geriKomut) frenAktif = false;                    // geri komutu freni iptal eder
+    if (surusKomutu) geriHareket = geriKomut;
+    if (renkYok && surusKomutu && !geriKomut) c = 'S';   // renk yokken ileri/dönüş engellenir
+    if (c == 'S' && frenAktif) return;                   // fren darbesi yarıda kesilmesin
+
+    switch (c) {
+      case 'F': motorSur( hiz,  hiz); hareketli = true; break;
+      case 'B': motorSur(-hiz, -hiz); hareketli = true; break;
+      case 'L': motorSur(-hiz,  hiz); hareketli = true; break; // yerinde sola dön
+      case 'R': motorSur( hiz, -hiz); hareketli = true; break; // yerinde sağa dön
+      case 'E': motorSur( hiz,  hiz * KAVIS_ORANI); hareketli = true; break; // ileri giderken sağa kavis
+      case 'Q': motorSur( hiz * KAVIS_ORANI,  hiz); hareketli = true; break; // ileri giderken sola kavis
+      case 'C': motorSur(-hiz, -hiz * KAVIS_ORANI); hareketli = true; break; // geri giderken sağa kavis
+      case 'Z': motorSur(-hiz * KAVIS_ORANI, -hiz); hareketli = true; break; // geri giderken sola kavis
+      case 'S': motorSur(0, 0);       hareketli = false; break;
+      default:
+        if (c >= '0' && c <= '9') {
+          hiz = map(c - '0', 0, 9, 80, 255);
+          if (c == '0' || c == '9') melodiCal(UZUN_BIP, 1);   // en yavaş / en hızlı: uzun bip
+          else                      melodiCal(DIT_SESI, 1);   // ara kademe: dit
+        }
+    }
+  }
+}
+
+// ---------------- BLUETOOTH MODÜL MESAJI SÜZGECİ ----------------
+// HM-10 tipi modül, bağlantı kurulunca "OK+CONN", kopunca "OK+LOST" yazısını kendiliğinden gönderir.
+// Bu harfler komut sanılırsa robot kıpırdar ('C' = geri-sağ kavis: sol teker geri döner, 'L' = sola dön,
+// 'O'/'K' = kıskaç). Süzgeç "OK+" ile başlayan mesajı ve arkasından gelen büyük harfleri yok sayar.
+char btBekleyen[2];
+int btBekleyenSayi = 0;            // 1 = 'O' bekliyor, 2 = "OK" bekliyor
+unsigned long btBekleyenZaman = 0;
+bool btAtla = false;               // "OK+" görüldü, mesajın geri kalanı atlanıyor
+int btAtlaSayac = 0;
+unsigned long btAtlaZaman = 0;
+
+void btBosalt() {                  // "OK+" çıkmadı: bekletilen harfler gerçek komutmuş, işle
+  for (int i = 0; i < btBekleyenSayi; i++) komutIsle(btBekleyen[i]);
+  btBekleyenSayi = 0;
+}
+
+void btKarakter(char c) {
+  unsigned long simdi = millis();
+  if (btAtla) {                    // "OK+" sonrası CONN / LOST gibi büyük harfler aynı anda peş peşe gelir
+    if (c >= 'A' && c <= 'Z' && btAtlaSayac < 6 && simdi - btAtlaZaman < 30) {
+      if (btAtlaSayac == 0 && c == 'C') baglantiIsareti();   // "OK+CONN": bir cihaz bağlandı
+      btAtlaSayac++;
+      btAtlaZaman = simdi;
+      return;
+    }
+    btAtla = false;
+  }
+  if (btBekleyenSayi == 1) {
+    if (c == 'K') { btBekleyen[1] = 'K'; btBekleyenSayi = 2; btBekleyenZaman = simdi; return; }
+    btBosalt();
+  } else if (btBekleyenSayi == 2) {
+    if (c == '+') { btBekleyenSayi = 0; btAtla = true; btAtlaSayac = 0; btAtlaZaman = simdi; return; }
+    btBosalt();
+  }
+  if (c == 'O') { btBekleyen[0] = 'O'; btBekleyenSayi = 1; btBekleyenZaman = simdi; return; }
+  komutIsle(c);
+}
+
+void btBekleyenKontrol() {         // 'O' ya da "OK" gelip ardı gelmediyse (15 ms) gerçek komuttur
+  if (btBekleyenSayi > 0 && millis() - btBekleyenZaman > 15) btBosalt();
+}
+// ----------------------------------------------------------------------
+
+void loop() {
+  renkGuncelle();                  // en önce: masa kenarı gibi durumlara en hızlı tepki
+  ledGuncelle();
+  frenGuncelle();
+  buzzerGuncelle();
+  kiskacGuncelle();
+  carpmaGuncelle();
+  mesafeGuncelle();
+  if (pilEkraniAcik) pilEkraniGuncelle();   // pil ekranı açıkken gözler bekler
+  else               gozleriGuncelle();
+
+  // Gelen komutların hepsini beklemeden oku (sayfa birkaç komutu tek pakette gönderebilir)
+  while (Serial.available() > 0)   komutIsle(Serial.read());
+  while (btSerial.available() > 0) btKarakter(btSerial.read());   // modülün kendi mesajları süzülür
+  btBekleyenKontrol();
+
+  // Bağlantı kopar veya sayfa kapanırsa robotu durdur
+  if (hareketli && millis() - sonKomut > ZAMAN_ASIMI) {
+    motorSur(0, 0);
+    hareketli = false;
+  }
+}
+</script>
+
+<script>
+  // HM-10 / AT-09 tipi BLE-seri modüllerde yaygın olan servis ve karakteristik UUID'leri.
+  // Modülün elimizdeki kartla tam eşleşmediği (bağlanamama/servis bulunamama) durumunda
+  // Chrome'da chrome://bluetooth-internals adresinden modülün gerçek servis UUID'sini görüp
+  // buradaki iki satırı ona göre değiştirebiliriz.
+  const BT_SERVIS_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
+  const BT_KARAKTERISTIK_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
+
+  let cihaz, karakteristik;
+  let aktifKomut = null, tekrarZamanlayici = null;
+  const enc = new TextEncoder();
+  const durumEl = document.getElementById('durum');
+
+  if (!('bluetooth' in navigator)) {
+    durumEl.textContent = 'Bu tarayıcı Web Bluetooth desteklemiyor. Chrome veya Edge kullan.';
+  }
+
+  // Bluetooth aynı anda tek gönderim yapabilir. Komutlar sıraya dizilip gecikmesin diye:
+  // gönderim sürerken gelen komutlar biriktirilir, aynı türden eskisi atılır (sadece en güncel yön,
+  // en güncel hız, en güncel kıskaç komutu kalır) ve hepsi tek pakette gönderilir.
+  let bekleyen = '';
+  let gonderiliyor = false;
+
+  function komutTuru(c) {
+    if ('FBLRSEQCZ'.includes(c)) return 'yon';
+    if (c >= 's' && c <= 'z') return 'hiz';
+    if ((c >= 'a' && c <= 'r') || c === 'K' || c === 'O') return 'kiskac';
+    return null;   // '0'-'9' hız kademesi: her basış ayrı bip çalsın diye atılmaz
+  }
+
+  function yaz(harf) {
+    if (!karakteristik) return;
+    const tur = komutTuru(harf);
+    if (tur) bekleyen = [...bekleyen].filter(c => komutTuru(c) !== tur).join('');
+    bekleyen += harf;
+    if (bekleyen.length > 20) bekleyen = bekleyen.slice(-20);   // bir Bluetooth paketi en fazla 20 harf
+    gonder();
+  }
+
+  async function gonder() {
+    if (gonderiliyor || !bekleyen || !karakteristik) return;
+    gonderiliyor = true;
+    const paket = bekleyen;
+    bekleyen = '';
+    try {
+      if (karakteristik.properties.writeWithoutResponse) {
+        await karakteristik.writeValueWithoutResponse(enc.encode(paket));
+      } else {
+        await karakteristik.writeValue(enc.encode(paket));
+      }
+    } catch (e) { console.error(e); }
+    gonderiliyor = false;
+    if (bekleyen) gonder();   // gönderim sırasında yeni komut geldiyse hemen onu yolla
+  }
+
+  function baglantıKoptu() {
+    karakteristik = null;
+    durumEl.textContent = 'Bağlantı koptu';
+    durumEl.className = 'degil';
+  }
+
+  // Telefonda ekran kararınca sayfa durur (robot da güvenlik için durur). Bağlıyken ekranı açık tut.
+  let ekranKilidi = null;
+  async function ekranAcikTut() {
+    try {
+      if ('wakeLock' in navigator) ekranKilidi = await navigator.wakeLock.request('screen');
+    } catch (e) { console.log('Ekran açık tutulamadı:', e); }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && karakteristik) ekranAcikTut();   // sayfaya dönünce yenile
+  });
+
+  document.getElementById('baglan').addEventListener('click', async () => {
+    try {
+      cihaz = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [BT_SERVIS_UUID]
+      });
+      cihaz.addEventListener('gattserverdisconnected', baglantıKoptu);
+      durumEl.textContent = 'Bağlanıyor...';
+      const sunucu = await cihaz.gatt.connect();
+      const servis = await sunucu.getPrimaryService(BT_SERVIS_UUID);
+      karakteristik = await servis.getCharacteristic(BT_KARAKTERISTIK_UUID);
+      durumEl.textContent = 'Bağlandı ✅ (' + (cihaz.name || 'isimsiz cihaz') + ')';
+      durumEl.className = 'bagli';
+      yaz(document.getElementById('hiz').value);
+      yaz('Y');                       // robotun LED'i 3 sn yanıp sönsün
+      ekranAcikTut();
+    } catch (e) {
+      durumEl.textContent = 'Bağlanamadı: ' + e.message;
+      durumEl.className = 'degil';
+    }
+  });
+
+  // Tuş basılı olduğu sürece komutu 100 ms'de bir tekrar gönder (Arduino'daki güvenlik zaman aşımı için)
+  function baslat(komut, gamepadden = false) {
+    // Klavye/ekran düğmesiyle sürerken hız, kumandanın bıraktığı analog değere takılı kalmasın:
+    // ekrandaki hız kademesine (tam itilmiş çubuk karşılığı) geri dönülür.
+    if (!gamepadden && sonHizHarfi !== null) { sonHizHarfi = null; yaz(analogHizHarfi(1)); }
+    if (aktifKomut === komut) return;
+    bitir(false);
+    aktifKomut = komut;
+    yaz(komut);
+    tekrarZamanlayici = setInterval(() => yaz(komut), 100);
+    const parcalar = { E: ['F', 'R'], Q: ['F', 'L'], C: ['B', 'R'], Z: ['B', 'L'] };
+    const vurgu = parcalar[komut] || [komut];
+    document.querySelectorAll('.pad button').forEach(b => b.classList.toggle('aktif', vurgu.includes(b.dataset.k)));
+  }
+
+  function bitir(dur = true) {
+    clearInterval(tekrarZamanlayici);
+    aktifKomut = null;
+    document.querySelectorAll('.pad button').forEach(b => b.classList.remove('aktif'));
+    if (dur) yaz('S');
+  }
+
+  // Ekrandaki butonlar (fare + dokunmatik)
+  document.querySelectorAll('.pad button').forEach(b => {
+    b.addEventListener('pointerdown', () => baslat(b.dataset.k));
+    b.addEventListener('pointerup', () => bitir());
+    b.addEventListener('pointerleave', () => { if (aktifKomut === b.dataset.k) bitir(); });
+  });
+  document.getElementById('dur').addEventListener('click', () => bitir());
+
+  // Klavye: aynı anda birden fazla tuş takip edilir (örn. W + D = ileri giderken sağa kavis)
+  // e.code fiziksel tuşu verir; Türkçe Q veya F klavyede de aynı tuşlar çalışır
+  const yonTuslari = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD']);
+  const basiliKodlar = new Set();
+
+  function yonKomutuHesapla(yukari, asagi, sol, sag) {
+    const ileriGeri = (yukari ? 1 : 0) - (asagi ? 1 : 0);   // 1 ileri, -1 geri
+    const sagSol = (sag ? 1 : 0) - (sol ? 1 : 0);           // 1 sağ, -1 sol
+    const tablo = {
+      '1,0': 'F', '-1,0': 'B', '0,-1': 'L', '0,1': 'R',
+      '1,1': 'E', '1,-1': 'Q', '-1,1': 'C', '-1,-1': 'Z'
+    };
+    return tablo[ileriGeri + ',' + sagSol] || null;
+  }
+
+  function klavyeKomutu() {
+    const yukari = basiliKodlar.has('KeyW') || basiliKodlar.has('ArrowUp');
+    const asagi  = basiliKodlar.has('KeyS') || basiliKodlar.has('ArrowDown');
+    const sol    = basiliKodlar.has('KeyA') || basiliKodlar.has('ArrowLeft');
+    const sag    = basiliKodlar.has('KeyD') || basiliKodlar.has('ArrowRight');
+    return yonKomutuHesapla(yukari, asagi, sol, sag);
+  }
+
+  function klavyeGuncelle() {
+    const k = klavyeKomutu();
+    if (k) baslat(k);
+    else if (aktifKomut) bitir();
+  }
+
+  document.addEventListener('keydown', e => {
+    if (yonTuslari.has(e.code)) {
+      e.preventDefault();
+      if (e.repeat) return;
+      basiliKodlar.add(e.code);
+      klavyeGuncelle();
+    } else if (e.code === 'Space') {
+      e.preventDefault();
+      basiliKodlar.clear();
+      bitir();
+    }
+  });
+  document.addEventListener('keyup', e => {
+    if (yonTuslari.has(e.code)) {
+      basiliKodlar.delete(e.code);
+      klavyeGuncelle();
+    }
+  });
+  // Sayfa odağı kaybederse tuş bırakma olayı kaçabilir; güvenlik için dur
+  window.addEventListener('blur', () => { basiliKodlar.clear(); bitir(); });
+
+  // Hız
+  document.getElementById('hiz').addEventListener('input', e => {
+    document.getElementById('hizYazi').textContent = e.target.value;
+    yaz(e.target.value);
+    sonHizHarfi = null;       // yeni üst sınır, çubuk hızına hemen yansısın
+  });
+
+  // Kıskaç: E basılı = kapat (K), R basılı = aç (O). Arduino komut gelmeyince kıskacı durdurur.
+  let kiskacZamanlayici = null, kiskacHarf = null;
+  function kiskacBaslat(harf) {
+    if (kiskacHarf === harf) return;
+    kiskacDurdur();
+    kiskacHarf = harf;
+    yaz(harf);
+    kiskacZamanlayici = setInterval(() => yaz(harf), 100);
+  }
+  function kiskacDurdur() {
+    clearInterval(kiskacZamanlayici);
+    kiskacZamanlayici = null;
+    kiskacHarf = null;
+  }
+  document.addEventListener('keydown', e => {
+    if (e.code === 'KeyE')      { e.preventDefault(); if (!e.repeat) kiskacBaslat('K'); }
+    else if (e.code === 'KeyR') { e.preventDefault(); if (!e.repeat) kiskacBaslat('O'); }
+  });
+  document.addEventListener('keyup', e => {
+    if (e.code === 'KeyE' && kiskacHarf === 'K') kiskacDurdur();
+    if (e.code === 'KeyR' && kiskacHarf === 'O') kiskacDurdur();
+  });
+  [['kiskacKapat', 'K'], ['kiskacAc', 'O']].forEach(([id, harf]) => {
+    const b = document.getElementById(id);
+    b.addEventListener('pointerdown', () => kiskacBaslat(harf));
+    b.addEventListener('pointerup', kiskacDurdur);
+    b.addEventListener('pointerleave', () => { if (kiskacHarf === harf) kiskacDurdur(); });
+    b.addEventListener('pointercancel', kiskacDurdur);
+  });
+  window.addEventListener('blur', kiskacDurdur);
+  document.getElementById('ledRenk').addEventListener('click', () => yaz('X'));
+
+  // ---------------- GAMEPAD (örn. Luna) ----------------
+  // Not: Luna gibi bulut oyun kumandaları Bluetooth Low Energy (BLE) HID cihazıdır ve
+  // robotun üzerindeki basit seri Bluetooth modülüyle (HC-05/HC-06 tipi) DOĞRUDAN eşleşmez.
+  // Bu yüzden kumanda önce Windows'un Bluetooth ayarlarından BİLGİSAYARA eşleştirilir,
+  // tarayıcı da onu bu sayfadan okuyup aynı Web Bluetooth bağlantısı üzerinden robota komut gönderir.
+  const gamepadDurumEl = document.getElementById('gamepadDurum');
+  let gamepadIndex = null;
+  let gamepadAktifYon = null;
+  let gamepadKiskacHarf = null;
+  let lbBasiliOnceki = false, rbBasiliOnceki = false, bBasiliOnceki = false;
+
+  function hizDegistir(delta) {
+    const el = document.getElementById('hiz');
+    const yeni = Math.max(0, Math.min(9, parseInt(el.value, 10) + delta));
+    el.value = yeni;
+    document.getElementById('hizYazi').textContent = yeni;
+    yaz(String(yeni));        // bip sesi bu komutla çalar (0 ve 9'da uzun bip)
+    sonHizHarfi = null;       // yeni üst sınır, çubuk hızına hemen yansısın
+  }
+
+  window.addEventListener('gamepadconnected', (e) => {
+    gamepadIndex = e.gamepad.index;
+    gamepadDurumEl.textContent = '🎮';
+    gamepadDurumEl.classList.add('bagli');
+    document.getElementById('gamepadDebug').style.display = 'block';
+  });
+  window.addEventListener('gamepaddisconnected', (e) => {
+    if (e.gamepad.index === gamepadIndex) {
+      gamepadIndex = null;
+      gamepadDurumEl.textContent = '';
+      gamepadDurumEl.classList.remove('bagli');
+      if (gamepadAktifYon) { bitir(); gamepadAktifYon = null; }
+      if (gamepadKiskacHarf) { kiskacDurdur(); gamepadKiskacHarf = null; }
+    }
+  });
+
+  const GAMEPAD_OLU_BOLGE = 0.22;  // çubuk bu kadar itilene kadar hareket yok (kendiliğinden oynamayı önler)
+  const GAMEPAD_YON_ESIGI = 0.40;  // bir eksen bu orana ulaşınca o yön sayılır (kavis almayı belirler)
+
+  // Çubuğun ne kadar itildiğini robotun anlayacağı hız harfine çevirir: 's' en yavaş .. 'z' en hızlı.
+  // Üst sınır ekrandaki hız kademesi (LB/RB ile ayarlanan), yani çubuğu sonuna kadar itsen bile onu aşmaz.
+  function analogHizHarfi(itme) {
+    const tavan = parseInt(document.getElementById('hiz').value, 10) / 9;          // 0..1
+    const oran = (itme - GAMEPAD_OLU_BOLGE) / (1 - GAMEPAD_OLU_BOLGE) * tavan;     // 0..1
+    const seviye = Math.max(0, Math.min(7, Math.round(oran * 7)));
+    return String.fromCharCode('s'.charCodeAt(0) + seviye);
+  }
+  let sonHizHarfi = null;
+
+  function gamepadDongu() {
+    if (gamepadIndex !== null) {
+      const gp = navigator.getGamepads()[gamepadIndex];
+      if (gp) {
+        document.getElementById('gamepadAxes').innerHTML =
+          'Düzen: ' + (gp.mapping === 'standard' ? 'standart' : 'standart dışı') +
+          ' &nbsp;|&nbsp; İtme: ' + Math.min(1, Math.hypot(gp.axes[0] || 0, gp.axes[1] || 0)).toFixed(2) +
+          (sonHizHarfi ? ' (hız ' + (sonHizHarfi.charCodeAt(0) - 114) + '/8)' : '') + ' &nbsp;|&nbsp; ' +
+          gp.axes.map((v, i) => 'Çubuk ' + i + ': ' + v.toFixed(2)).join(' &nbsp; ');
+        document.getElementById('gamepadButtons').innerHTML =
+          gp.buttons.map((b, i) => '<b class="' + ((b.pressed || b.value > 0.5) ? 'basili' : '') + '">B' + i + '</b>').join(' ');
+
+        // Yön: önce D-pad (buttons 12-15, tam hız), yoksa sol analog çubuk (axes 0-1, itildiği kadar hız)
+        let yukari = !!gp.buttons[12]?.pressed;
+        let asagi  = !!gp.buttons[13]?.pressed;
+        let sol    = !!gp.buttons[14]?.pressed;
+        let sag    = !!gp.buttons[15]?.pressed;
+
+        // Bilgisayarda (Windows) Luna'nın D-pad'i düğme değil, tek eksen olarak gelir: Çubuk 9.
+        // Değerler: -1 yukarı, -0.71 yukarı-sağ, -0.43 sağ, -0.14 aşağı-sağ, 0.14 aşağı,
+        // 0.43 aşağı-sol, 0.71 sol, 1 yukarı-sol; bırakılınca 1'den büyük bir değer (≈3.29) gelir.
+        const dpad = gp.axes[9];
+        if (dpad !== undefined && dpad >= -1.05 && dpad <= 1.05) {
+          const yon8 = Math.round((dpad + 1) / (2 / 7));      // 0 = yukarı, saat yönünde 7'ye kadar
+          if (yon8 === 7 || yon8 === 0 || yon8 === 1) yukari = true;
+          if (yon8 >= 1 && yon8 <= 3) sag = true;
+          if (yon8 >= 3 && yon8 <= 5) asagi = true;
+          if (yon8 >= 5 && yon8 <= 7) sol = true;
+        }
+
+        let itme = (yukari || asagi || sol || sag) ? 1 : 0;   // D-pad basılıysa tam hız
+        if (itme === 0) {
+          const x = gp.axes[0] || 0, y = gp.axes[1] || 0;
+          itme = Math.min(1, Math.hypot(x, y));               // çubuğun merkezden uzaklığı: 0 (boşta) .. 1 (sonuna kadar)
+          if (itme > GAMEPAD_OLU_BOLGE) {
+            if (y < -GAMEPAD_YON_ESIGI) yukari = true;
+            if (y >  GAMEPAD_YON_ESIGI) asagi = true;
+            if (x < -GAMEPAD_YON_ESIGI) sol = true;
+            if (x >  GAMEPAD_YON_ESIGI) sag = true;
+          } else {
+            itme = 0;
+          }
+        }
+        const yon = yonKomutuHesapla(yukari, asagi, sol, sag);
+        if (yon) {
+          const harf = analogHizHarfi(itme);                  // önce hızı bildir, sonra yönü
+          if (harf !== sonHizHarfi) { sonHizHarfi = harf; yaz(harf); }
+          gamepadAktifYon = yon;
+          baslat(yon, true);
+        } else if (gamepadAktifYon) {
+          gamepadAktifYon = null;
+          sonHizHarfi = null;
+          bitir();
+        }
+
+        // Kumanda düzeni: Android Chrome kumandayı genelde "standard" düzende okur (tetikler buton 6/7, LB/RB buton 4/5).
+        // Windows'ta Luna standart dışı geliyordu (tetikler Çubuk 3/4, LB/RB buton 6/7). İkisi de otomatik tanınır.
+        // Telefonda (Android) Luna: LB=B4, RB=B5, LT=B6, RT=B7 (Gamepad Bulucu ile doğrulandı).
+        // Bilgisayarda (Windows) Luna: LB=B6, RB=B7, LT=Çubuk 3, RT=Çubuk 4.
+        const standart = gp.mapping === 'standard' || /Android/i.test(navigator.userAgent);
+
+        // Kıskaç: LT = kapat, RT = aç — ne kadar bastırırsan o kadar hızlı hareket eder
+        // (a..i = kapatma hızı 1-9, j..r = açma hızı 1-9; değerler -1 (bırakılmış) .. +1 (tam basılı) aralığına çevrilir)
+        const KISKAC_TETIK_ESIGI = -0.5; // bu değerden büyükse tetik "basılı" sayılır
+        const ltDeger = standart ? (gp.buttons[6]?.value ?? 0) * 2 - 1 : (gp.axes[3] ?? -1);
+        const rtDeger = standart ? (gp.buttons[7]?.value ?? 0) * 2 - 1 : (gp.axes[4] ?? -1);
+        function seviyeHesapla(deger) {
+          const oran = (deger - KISKAC_TETIK_ESIGI) / (1 - KISKAC_TETIK_ESIGI); // 0..1
+          return Math.max(1, Math.min(9, Math.round(oran * 9)));
+        }
+        let yeniHarf = null;
+        if (ltDeger > KISKAC_TETIK_ESIGI) {
+          yeniHarf = String.fromCharCode('a'.charCodeAt(0) + seviyeHesapla(ltDeger) - 1);
+        } else if (rtDeger > KISKAC_TETIK_ESIGI) {
+          yeniHarf = String.fromCharCode('j'.charCodeAt(0) + seviyeHesapla(rtDeger) - 1);
+        }
+        if (yeniHarf !== gamepadKiskacHarf) {
+          gamepadKiskacHarf = yeniHarf;
+          if (yeniHarf) kiskacBaslat(yeniHarf); else kiskacDurdur();
+        }
+
+        // Hız: LB = azalt, RB = artır (basılı tutunca değil, her basışta bir kademe)
+        // Telefonda bazı kumandalarda .pressed hiç gelmiyor, sadece .value çalışıyor — ikisi de kontrol edilir.
+        function butonBasiliMi(i) {
+          const b = gp.buttons[i];
+          if (!b) return false;
+          return b.pressed || b.value > 0.5;
+        }
+        const lbIndex = standart ? 4 : 6, rbIndex = standart ? 5 : 7;
+        const lbBasili = butonBasiliMi(lbIndex);
+        const rbBasili = butonBasiliMi(rbIndex);
+        if (lbBasili && !lbBasiliOnceki) hizDegistir(-1);
+        if (rbBasili && !rbBasiliOnceki) hizDegistir(1);
+        lbBasiliOnceki = lbBasili;
+        rbBasiliOnceki = rbBasili;
+
+        // LED rengi: B düğmesi (bilgisayarda da telefonda da B1) — her basışta sıradaki renk
+        const bBasili = butonBasiliMi(1);
+        if (bBasili && !bBasiliOnceki) yaz('X');
+        bBasiliOnceki = bBasili;
+      }
+    }
+    requestAnimationFrame(gamepadDongu);
+  }
+  requestAnimationFrame(gamepadDongu);
+  // -------------------------------------------------
+
+  // Sayfa kapanırken dur
+  window.addEventListener('beforeunload', () => yaz('S'));
+
+  // Arduino kodunu göster ve kopyala
+  const kaynak = document.getElementById('inoKaynak').textContent;
+  document.getElementById('kod').textContent = kaynak;
+  document.getElementById('kopyala').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    try {
+      await navigator.clipboard.writeText(kaynak);
+    } catch (err) {
+      const ta = document.createElement('textarea');
+      ta.value = kaynak;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    btn.textContent = 'Kopyalandı ✅';
+    btn.classList.add('tamam');
+    setTimeout(() => { btn.textContent = 'Kodu Kopyala'; btn.classList.remove('tamam'); }, 2000);
+  });
+</script>
+</body>
+</html>
