@@ -1249,5 +1249,51 @@ void loop() {
     setTimeout(() => { btn.textContent = 'Kodu Kopyala'; btn.classList.remove('tamam'); }, 2000);
   });
 </script>
-</body>
+</body> <!-- ROBOT BİLGİLENDİRME & TANITIM SEKSİYONU -->
+        <section class="card" style="margin-top: 30px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 15px; padding: 25px;">
+            <h2 style="color: #009ffd; margin-bottom: 20px; font-size: 1.4rem; border-bottom: 2px solid #009ffd; padding-bottom: 8px; display: inline-block;">Harezmi X Proje Bilgileri</h2>
+            <p style="margin-bottom: 20px; opacity: 0.8;">
+                Harezmi X, kablosuz Web Bluetooth protokolü üzerinden doğrudan internet tarayıcısı aracılığıyla gerçek zamanlı hareket ve mekanizma kontrolü sağlayan robotik projedir.
+            </p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
+                <div>
+                    <h3 style="color: #009ffd; margin-bottom: 15px;">Sistem Özellikleri</h3>
+                    
+                    <div style="display: flex; align-items: flex-start; gap: 15px; margin-bottom: 15px;">
+                        <div style="background: #009ffd; color: #000; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">1</div>
+                        <div>
+                            <strong>Anlık Sürüş Kontrolü:</strong>
+                            <p style="opacity: 0.7; font-size: 0.85rem;">İleri, geri, sağ, sol ve durdurma yön komutları.</p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: flex-start; gap: 15px; margin-bottom: 15px;">
+                        <div style="background: #009ffd; color: #000; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">2</div>
+                        <div>
+                            <strong>Servo Kıskaç Yönetimi:</strong>
+                            <p style="opacity: 0.7; font-size: 0.85rem;">0-180 derece arasında hassas açı ayarı.</p>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: flex-start; gap: 15px; margin-bottom: 15px;">
+                        <div style="background: #009ffd; color: #000; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">3</div>
+                        <div>
+                            <strong>RGB Aydınlatma:</strong>
+                            <p style="opacity: 0.7; font-size: 0.85rem;">İstenilen renk tonunda LED kontrolü.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 style="color: #009ffd; margin-bottom: 15px;">Donanım Mimarisi</h3>
+                    <ul style="list-style: none; line-height: 2;">
+                        <li style="border-bottom: 1px solid rgba(255,255,255,0.05);">⚡ <strong>Denetleyici:</strong> ESP32 / Arduino BLE</li>
+                        <li style="border-bottom: 1px solid rgba(255,255,255,0.05);">⚙️ <strong>Sürücü:</strong> Çift Motor Sürücü Modülü</li>
+                        <li style="border-bottom: 1px solid rgba(255,255,255,0.05);">📡 <strong>İletişim:</strong> Web Bluetooth API</li>
+                        <li style="border-bottom: 1px solid rgba(255,255,255,0.05);">🔋 <strong>Güç:</strong> Şarj Edilebilir Batarya</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
 </html>
