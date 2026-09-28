@@ -1310,26 +1310,76 @@ void loop() {
 </div>
 <style>
   body {
-    /* Arka plan görselini ayarla */
-    background-image: url('arkaplan.jpg'); /* Buraya görselin adını yazın */
-    background-size: cover;
-    background-attachment: fixed;
-    background-position: center;
-    color: white; /* Metinleri beyaz yaparak okunabilirliği artırın */
-    font-family: Arial, sans-serif;
-  }
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AME Harezmi X Kontrol</title>
+  <style>
+    /* 1. ARKA PLAN AYARLARI (arkaplan.jpg) */
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background-image: url('arkaplan.jpg');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      color: #ffffff;
+      min-height: 100vh;
+    }
 
-  /* Kod bloğunun arka planını koyulaştırın */
-  .code-block {
-    background-color: rgba(0, 0, 0, 0.7);
-    padding: 15px;
-    border-radius: 8px;
-  }
+    /* 2. EN ÜST HEADER (LOGO + BAŞLIK) */
+    header {
+      background: rgba(10, 15, 25, 0.85); /* Koyulaştırılmış şeffaf zemin */
+      backdrop-filter: blur(10px); /* Arka planı hafif flulaştırır */
+      padding: 20px 10px;
+      text-align: center;
+      border-bottom: 2px solid rgba(0, 150, 255, 0.4);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    }
 
-  /* Diğer metin alanları için hafif karartma */
-  .info-section {
-    background-color: rgba(0, 0, 0, 0.3);
-    padding: 20px;
-    border-radius: 10px;
-  }
-</style>
+    header img {
+      max-width: 140px;
+      height: auto;
+      border-radius: 8px;
+    }
+
+    header h1 {
+      margin: 10px 0 0 0;
+      font-size: 24px;
+      font-weight: bold;
+      color: #ffffff;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+    }
+
+    /* 3. İÇERİK KUTULARI (Dişlilerin üzerinde rahat okunabilmesi için) */
+    .container {
+      max-width: 900px;
+      margin: 30px auto;
+      padding: 25px;
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(8px);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- SAYFANIN EN ÜSTÜNDEKİ BÖLÜM -->
+  <header>
+    <img src="arkaplan.jpg" alt="AME Logo">
+    <h1>AME Harezmi X Kontrol</h1>
+  </header>
+
+  <!-- ROBOT KONTROL VE PROJE BİLGİLERİ -->
+  <div class="container">
+    <!-- Sayfanın diğer kontrol düğmeleri ve kod blokları buraya gelecek -->
+  </div>
+
+</body>
+</html>
